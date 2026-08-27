@@ -3,6 +3,7 @@ import {autorun} from "mobx";
 import {Observer} from "mobx-react-lite";
 import React, {FunctionComponent, useCallback, useEffect, useState} from 'react';
 import {deletedMediaContext, mediaContext} from "../stores/MediaStore";
+import {getArrStatus} from "../util/api";
 import {Media, Content} from "../types";
 import {bytesToSize, sumMediaSize} from "../util";
 import {ContentItem} from "./ContentItem";
@@ -10,6 +11,11 @@ import {ContentList} from "./ContentList";
 import {ContentTopBar} from "./ContentTopBar";
 import {serverInfoContext} from "../stores/ServerInfoStore";
 import {contentContext} from "../stores/ContentStore";
+
+// Deletes are issued this many at a time. Plex performs a real file delete
+// per request, so unbounded concurrency is what causes the timeouts in
+// upstream issues #155 and #67.
+const DELETE_BATCH_SIZE = 10;
 
 export const ContentPage:FunctionComponent<any> = () => {
 
@@ -46,28 +52,45 @@ export const ContentPage:FunctionComponent<any> = () => {
       id: 'delete-toaster'
     });
 
-    let promises: Promise<any>[] = [];
     const blocked: string[] = [];
 
-    mediaStore.isDeleting = true;
+    // Collect the work first, then run it in batches. Firing every delete at
+    // once is what makes large selections fail: Plex is doing a real file
+    // delete per request and the backend now also does an *arr lookup, so a
+    // few hundred concurrent requests time out and surface as 500s/502s.
+    // See upstream issues #155 and #67.
+    const jobs: {library: string, key: string, media: Media}[] = [];
     contentStore.items.forEach(movie => {
       movie.media.forEach(media => {
         if (media.id in mediaStore.media) {
-          promises.push(
-            mediaStore.deleteMedia(movie.library, movie.key, media).then(() => {
-              deletedMediaStore.addMedia(media);
-            }).catch((error) => {
-              // Most likely the *arr guard. Report it and carry on with the rest
-              // rather than failing the whole batch.
-              blocked.push(error.message || 'Delete failed');
-            })
-          )
+          jobs.push({library: movie.library, key: movie.key, media});
         }
       });
-      promises.push(serverInfoStore.loadDeletedSizes());
     });
 
-    Promise.all(promises).then(() => {
+    mediaStore.isDeleting = true;
+
+    const runBatches = async () => {
+      for (let i = 0; i < jobs.length; i += DELETE_BATCH_SIZE) {
+        const batch = jobs.slice(i, i + DELETE_BATCH_SIZE);
+        await Promise.all(batch.map(job =>
+          mediaStore.deleteMedia(job.library, job.key, job.media).then(() => {
+            deletedMediaStore.addMedia(job.media);
+          }).catch((error) => {
+            // Most likely the *arr guard. Report it and carry on with the rest
+            // rather than failing the whole batch.
+            blocked.push(error.message || 'Delete failed');
+          })
+        ));
+        toaster.warning(
+          `Deleting... ${Math.min(i + DELETE_BATCH_SIZE, jobs.length)}/${jobs.length}`,
+          {duration: 5, id: 'delete-toaster'}
+        );
+      }
+      await serverInfoStore.loadDeletedSizes();
+    };
+
+    runBatches().then(() => {
       mediaStore.isDeleting = false;
       if (blocked.length > 0) {
         toaster.danger(`${blocked.length} item(s) were not deleted: ${blocked[0]}`, {
@@ -98,6 +121,18 @@ export const ContentPage:FunctionComponent<any> = () => {
     serverInfoStore.loadDeletedSizes();
   };
 
+  // Whether the backend wants the *arr-tracked copy ranked first. Exposed so
+  // ARR_PRESELECT=0 can keep the original resolution/size ordering while still
+  // showing the badges - see upstream issue #69, which asks for control over
+  // how the tool picks.
+  const [arrPreselect, setArrPreselect] = useState(true);
+
+  useEffect(() => {
+    getArrStatus()
+      .then(res => setArrPreselect(res.data.enabled ? res.data.preselect !== false : false))
+      .catch(() => setArrPreselect(false));
+  }, []);
+
   const onDeselectAll = () => {
     mediaStore.reset();
   };
@@ -119,8 +154,8 @@ export const ContentPage:FunctionComponent<any> = () => {
         //    copy, so ranking on size alone actively points at the wrong file.
         //    When no *arr is configured this is a no-op and the original
         //    resolution/size ordering below applies unchanged.
-        const aTracked = isTracked(a) ? 0 : 1;
-        const bTracked = isTracked(b) ? 0 : 1;
+        const aTracked = arrPreselect && isTracked(a) ? 0 : 1;
+        const bTracked = arrPreselect && isTracked(b) ? 0 : 1;
         if (aTracked !== bTracked) return aTracked - bTracked;
 
         // 2. Then prefer the higher resolution copy.
@@ -134,11 +169,11 @@ export const ContentPage:FunctionComponent<any> = () => {
       // pre-check a copy an *arr tracks, even if something else outranked it.
       sortedMedia.forEach(((media, index) => {
         if (index === 0) return;
-        if (isTracked(media)) return;
+        if (arrPreselect && isTracked(media)) return;
         mediaStore.addMedia(media);
       }));
     });
-  }, [mediaStore, contentStore.items]);
+  }, [mediaStore, contentStore.items, arrPreselect]);
 
 
   useEffect(() => {

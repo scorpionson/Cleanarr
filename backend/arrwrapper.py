@@ -116,6 +116,11 @@ class ArrWrapper:
         timeout = _env_int("ARR_TIMEOUT", 30)
         verify_ssl = os.environ.get("ARR_VERIFY_SSL", "1") != "0"
 
+        # Whether the *arr-tracked copy should be ranked first in the UI's
+        # default selection. On by default; set 0 to keep the original
+        # resolution/size ordering and just show the badges.
+        self.preselect = os.environ.get("ARR_PRESELECT", "1") != "0"
+
         self.instances = self._load_instances(timeout, verify_ssl)
         self._lock = threading.Lock()
         # normalised path -> {instance, kind, file_id, series_id, path}

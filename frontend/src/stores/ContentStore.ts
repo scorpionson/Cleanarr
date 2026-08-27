@@ -145,7 +145,7 @@ export class ContentStore {
       let anyPagesEmpty = false;
       results.forEach((result) => {
         combinedData = combinedData.concat(result.data);
-        if (result.data.length == 0) {
+        if (result.data.length === 0) {
           anyPagesEmpty = true;
         }
       });

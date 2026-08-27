@@ -73,6 +73,7 @@ def get_arr_status():
     arr = get_arr_wrapper()
     return jsonify({
         "enabled": arr.enabled,
+        "preselect": arr.preselect,
         "instances": [
             {"name": i.name, "type": i.kind} for i in arr.instances
         ],
