@@ -1,4 +1,7 @@
-FROM node:12 as build-stage
+# Frontend build. Node 12 is EOL, but it only ever runs at build time and never
+# ships in the final image. Moving off it requires the React/CRA major upgrade,
+# which is deliberately a separate change.
+FROM node:12 AS build-stage
 
 WORKDIR /frontend
 
@@ -9,24 +12,41 @@ ENV REACT_APP_BACKEND_URL="/"
 RUN yarn install && yarn build
 
 
-FROM tiangolo/uwsgi-nginx-flask:python3.10
+# Runtime. Replaces tiangolo/uwsgi-nginx-flask, which its author archived.
+FROM python:3.11-slim
 
-ENV STATIC_INDEX 1
-ENV CONFIG_DIR "/config"
+ENV CONFIG_DIR="/config"
+ENV PYTHONUNBUFFERED=1
 
-COPY ./backend/requirements.txt/ /app
-RUN pip install -r /app/requirements.txt
+WORKDIR /app
+
+COPY ./backend/requirements.txt /app/
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
 COPY ./backend /app
 
+# CRA emits static/ inside build/; the flattened copies keep both the
+# /static/... and /static/static/... request paths resolvable, matching what
+# nginx used to serve in the old base image.
 COPY --from=build-stage /frontend/build /app/static
 COPY --from=build-stage /frontend/build/static/css /app/static/css
 COPY --from=build-stage /frontend/build/static/js /app/static/js
+
 RUN mkdir -p $CONFIG_DIR
 
-# copied from here: https://github.com/se1exin/Cleanarr/issues/135#issuecomment-2091709103
-RUN echo "buffer-size=32768" >> /app/uwsgi.ini
+EXPOSE 80
 
 # Let Docker tell a wedged container apart from a healthy one. /server/info is
 # the cheapest endpoint that proves both Flask and the Plex connection work.
 HEALTHCHECK --interval=60s --timeout=15s --start-period=30s --retries=3 \
   CMD python3 -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1/server/info', timeout=10).status==200 else 1)" || exit 1
+
+# One worker on purpose: the ignore list is tinydb, which is not safe for
+# concurrent writes from separate processes. Threads share a single instance.
+# The long timeout is for full library scans, which routinely outlive any
+# default worker timeout.
+CMD ["gunicorn", "--bind", "0.0.0.0:80", \
+     "--workers", "1", "--threads", "8", \
+     "--timeout", "1800", "--graceful-timeout", "30", \
+     "--access-logfile", "-", "--error-logfile", "-", \
+     "main:app"]
