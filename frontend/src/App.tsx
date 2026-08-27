@@ -1,4 +1,4 @@
-import {Badge, Button, Heading, Icon, majorScale, Pane} from 'evergreen-ui'
+import {Badge, Button, Heading, majorScale, Pane, ShareIcon} from 'evergreen-ui'
 import {Observer} from "mobx-react-lite";
 import React, {useEffect} from 'react';
 import './App.css';
@@ -60,7 +60,7 @@ const App = () => {
               {serverInfoStore.serverUrl && (
                 <Button onClick={onClickServerLink}>
                   {serverInfoStore.serverName}
-                  <Icon icon={"share"} size={10} marginLeft={majorScale(1)} />
+                  <ShareIcon size={10} marginLeft={majorScale(1)} />
                 </Button>
               )}
             </>

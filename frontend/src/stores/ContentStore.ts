@@ -1,4 +1,4 @@
-import {action, computed, observable, runInAction} from "mobx";
+import {action, computed, makeObservable, observable, runInAction} from 'mobx';
 import React, {Context} from "react";
 import {Content} from "../types";
 import {getDupeContent, getSampleContent, ignoreMedia, unIgnoreMedia} from "../util/api";
@@ -6,6 +6,12 @@ import {getDupeContent, getSampleContent, ignoreMedia, unIgnoreMedia} from "../u
 export const PAGE_SIZE: number = Number(process.env.REACT_APP_PAGE_SIZE) || 10;
 
 export class ContentStore {
+  constructor() {
+    // mobx 6 requires this when using decorators - without it the
+    // decorated fields are never made observable and nothing reacts.
+    makeObservable(this);
+  }
+
   @observable.deep
   content: Content[] = [];
 
@@ -70,7 +76,7 @@ export class ContentStore {
 
   @action
   async ignoreContent(contentKey: string): Promise<any> {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       ignoreMedia(contentKey)
           .then(() => {
             for (let i = 0; i < this.content.length; i++) {
@@ -95,7 +101,7 @@ export class ContentStore {
 
   @action
   async unIgnoreContent(contentKey: string): Promise<any> {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       unIgnoreMedia(contentKey)
         .then(() => {
           for (let i = 0; i < this.content.length; i++) {

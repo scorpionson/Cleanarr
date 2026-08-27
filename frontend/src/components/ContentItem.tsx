@@ -1,4 +1,4 @@
-import {Badge, Button, Card, Checkbox, Dialog, Heading, Icon, IconButton, Image, majorScale, Pane, Table, Text} from "evergreen-ui";
+import {Badge, Button, Card, Checkbox, CrossIcon, Dialog, Heading, IconButton, Image, majorScale, Pane, ShareIcon, Table, Text, TrashIcon} from "evergreen-ui";
 import {Observer} from "mobx-react-lite";
 import React, {FunctionComponent, useState} from 'react';
 import {Media, MediaPart, Content} from "../types";
@@ -101,7 +101,7 @@ export const ContentItem:FunctionComponent<DupeMovieProps> = (props) => {
 
         <Button onClick={onClickServerLink}>
           Open in Plex
-          <Icon icon={"share"} size={10} marginLeft={majorScale(1)} />
+          <ShareIcon size={10} marginLeft={majorScale(1)} />
         </Button>
       </Pane>
       <Table>
@@ -128,7 +128,7 @@ export const ContentItem:FunctionComponent<DupeMovieProps> = (props) => {
                     flexBasis={50} flexShrink={0} flexGrow={0}
                   >
                     {media.id in deletedMedia ?
-                      <Icon icon="cross" color="red" size={10} />
+                      <CrossIcon color="red" size={10} />
                       :
                       <Checkbox
                         label={""}
@@ -186,7 +186,7 @@ export const ContentItem:FunctionComponent<DupeMovieProps> = (props) => {
                       <IconButton
                         appearance="primary"
                         intent="danger"
-                        icon="trash"
+                        icon={TrashIcon}
                         disabled={mediaItemToDelete !== null && mediaItemToDelete.id === media.id}
                         onClick={() => setMediaItemToDelete(media)}
                       />

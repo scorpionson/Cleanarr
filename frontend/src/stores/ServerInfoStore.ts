@@ -1,8 +1,14 @@
-import {action, observable, runInAction} from 'mobx';
+import {action, makeObservable, observable, runInAction} from 'mobx';
 import React, {Context} from "react";
 import {getDeletedSizes, getServerInfo} from "../util/api";
 
 export class ServerInfoStore {
+  constructor() {
+    // mobx 6 requires this when using decorators - without it the
+    // decorated fields are never made observable and nothing reacts.
+    makeObservable(this);
+  }
+
   @observable
   serverName = "";
 
@@ -24,7 +30,7 @@ export class ServerInfoStore {
 
   @action
   loadDeletedSizes() {
-    return new Promise((resolve) => {
+    return new Promise<void>((resolve) => {
       getDeletedSizes().then((result) => {
         runInAction(() => {
           this.deletedSizes = result.data;

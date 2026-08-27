@@ -1,7 +1,6 @@
-# Frontend build. Node 12 is EOL, but it only ever runs at build time and never
-# ships in the final image. Moving off it requires the React/CRA major upgrade,
-# which is deliberately a separate change.
-FROM node:12 AS build-stage
+# Frontend build. react-scripts 5 needs a modern Node; this also retires the
+# EOL node:12 stage.
+FROM node:22-alpine AS build-stage
 
 WORKDIR /frontend
 

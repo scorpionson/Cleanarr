@@ -6,7 +6,9 @@ import {
   majorScale,
   Pane,
   Pill,
-  SegmentedControl,
+  RefreshIcon,
+  Tab,
+  Tablist,
   Spinner, Switch
 } from "evergreen-ui";
 import React, {FunctionComponent, useState} from "react";
@@ -63,18 +65,22 @@ export const ContentTopBar:FunctionComponent<DupeMovieTopBarProps> = (props) => 
       <Pane display="flex">
         <Pane flex={1} alignItems="center" display="flex">
           <IconButton
-            icon="refresh"
+            icon={RefreshIcon}
             onClick={onRefresh}
           />
-          <SegmentedControl
-            name="switch"
-            marginX={majorScale(2)}
-            width={160}
-            height={32}
-            options={listingOptions}
-            value={listingType}
-            onChange={value => onListingTypeChange(value.toString())}
-          />
+          {/* evergreen 7 removed SegmentedControl; Tablist/Tab is its
+              replacement for this kind of two-option switch. */}
+          <Tablist marginX={majorScale(2)}>
+            {listingOptions.map((option: any) => (
+              <Tab
+                key={option.value}
+                isSelected={listingType === option.value}
+                onSelect={() => onListingTypeChange(option.value.toString())}
+              >
+                {option.label}
+              </Tab>
+            ))}
+          </Tablist>
         </Pane>
         <Pane display="flex">
           { numContent > 0 && numSelected === 0 ? (

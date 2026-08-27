@@ -1,10 +1,16 @@
-import {action, computed, observable} from 'mobx';
+import {action, computed, makeObservable, observable} from 'mobx';
 import React, {Context} from "react";
 import {Media} from "../types";
 import {sumMediaSize} from "../util";
 import {deleteMedia} from "../util/api";
 
 export class MediaStore {
+  constructor() {
+    // mobx 6 requires this when using decorators - without it the
+    // decorated fields are never made observable and nothing reacts.
+    makeObservable(this);
+  }
+
   @observable.deep
   media: Record<number, Media> = {};
 
@@ -26,7 +32,7 @@ export class MediaStore {
   }
 
   deleteMedia(libraryName: string, movieKey: string, media: Media, force: boolean = false): Promise<any> {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       deleteMedia(libraryName, movieKey, media.id, force)
         .then(() => {
           this.removeMedia(media);
