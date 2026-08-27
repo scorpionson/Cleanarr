@@ -1,4 +1,5 @@
 import {MediaPart} from "./MediaPart";
+import {ArrInfo} from "./ArrInfo";
 
 export interface Media {
   id: number,
@@ -18,5 +19,7 @@ export interface Media {
   videoFrameRate: string,
   videoProfile: string,
   videoResolution: string,
-  parts: MediaPart[]
+  parts: MediaPart[],
+  /** Present only when Radarr/Sonarr integration is configured. */
+  arr?: ArrInfo
 }

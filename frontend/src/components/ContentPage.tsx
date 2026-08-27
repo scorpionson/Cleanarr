@@ -47,6 +47,7 @@ export const ContentPage:FunctionComponent<any> = () => {
     });
 
     let promises: Promise<any>[] = [];
+    const blocked: string[] = [];
 
     mediaStore.isDeleting = true;
     contentStore.items.forEach(movie => {
@@ -55,6 +56,10 @@ export const ContentPage:FunctionComponent<any> = () => {
           promises.push(
             mediaStore.deleteMedia(movie.library, movie.key, media).then(() => {
               deletedMediaStore.addMedia(media);
+            }).catch((error) => {
+              // Most likely the *arr guard. Report it and carry on with the rest
+              // rather than failing the whole batch.
+              blocked.push(error.message || 'Delete failed');
             })
           )
         }
@@ -64,10 +69,17 @@ export const ContentPage:FunctionComponent<any> = () => {
 
     Promise.all(promises).then(() => {
       mediaStore.isDeleting = false;
-      toaster.success(`All items deleted!`, {
-        duration: 5,
-        id: 'delete-toaster'
-      });
+      if (blocked.length > 0) {
+        toaster.danger(`${blocked.length} item(s) were not deleted: ${blocked[0]}`, {
+          duration: 10,
+          id: 'delete-toaster'
+        });
+      } else {
+        toaster.success(`All items deleted!`, {
+          duration: 5,
+          id: 'delete-toaster'
+        });
+      }
 
       setTimeout(() => {
         onRefresh();
@@ -138,13 +150,13 @@ export const ContentPage:FunctionComponent<any> = () => {
     });
   };
 
-  const onDeleteMediaItem = (movie: Content, media: Media) => {
+  const onDeleteMediaItem = (movie: Content, media: Media, force: boolean = false) => {
     toaster.warning(`Deleting item...`, {
       duration: 5,
       id: 'delete-toaster'
     });
     mediaStore.isDeleting = true;
-    mediaStore.deleteMedia(movie.library, movie.key, media).then(() => {
+    mediaStore.deleteMedia(movie.library, movie.key, media, force).then(() => {
       deletedMediaStore.addMedia(media);
       mediaStore.isDeleting = false;
       toaster.success(`Item deleted!`, {
@@ -153,6 +165,12 @@ export const ContentPage:FunctionComponent<any> = () => {
       });
 
       serverInfoStore.loadDeletedSizes();
+    }).catch((error) => {
+      mediaStore.isDeleting = false;
+      toaster.danger(error.message || 'Failed to delete item', {
+        duration: 10,
+        id: 'delete-toaster'
+      });
     })
   }
 

@@ -9,6 +9,49 @@ You need to check `Settings | Library | Allow media deletion` within your plex s
 
 You will need a Plex Token: [How to find your Plex Token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/)
 
+## Radarr / Sonarr integration
+
+Plex will happily show you two copies of the same movie, but Radarr or Sonarr only
+ever track **one** of them as the real file. The other is an orphan - left behind
+by a failed upgrade, a manual import, or a post-processor that wrote a file back
+after the \*arr had already deleted it.
+
+Cleanarr on its own cannot tell those apart. Both copies look like valid media, and
+the bigger or higher-quality-looking one is very often the orphan. Delete the wrong
+one and your \*arr is left pointing at a file that no longer exists.
+
+If you set `RADARR_URL`/`RADARR_API_KEY` and/or `SONARR_URL`/`SONARR_API_KEY`,
+Cleanarr will:
+
+- **Label every copy** in the duplicates table with a *Managed By* badge - either
+  the instance that tracks it (plus that file's custom format score and quality),
+  or **Orphan** when no configured \*arr tracks it.
+- **Refuse to delete the tracked copy.** The delete button still works, but you have
+  to tick an explicit "delete it anyway" box first, and the API returns HTTP `409`
+  unless `force: true` is sent.
+
+Nothing changes if you don't configure an \*arr - the badges are hidden and deletes
+behave exactly as before.
+
+### Path matching
+
+Plex and your \*arrs usually see the same library through different mounts - Plex
+might call it `/mnt/Movies/Kids Movies/...` while Radarr calls the same file
+`/data/Movies/Kids Movies/...`. Cleanarr therefore matches on the **tail** of the
+path rather than the whole thing: by default the last two components (parent folder
+plus filename), which is unique in practice because \*arr folder names carry the
+title and an id.
+
+If you have libraries that genuinely share folder *and* file names, raise
+`ARR_PATH_MATCH_DEPTH` to 3 or more.
+
+### A note on custom format scores
+
+The score shown is whatever your \*arr calculated for that file under its quality
+profile, so it is only comparable **within** the same profile - and it can be
+negative. Treat it as a tie-breaker, not an absolute measure of quality. The badge
+that matters most is simply which copy is tracked.
+
 ## Run with Docker
 
 This project is available as a docker container on [Docker Hub](https://hub.docker.com/r/selexin/cleanarr).
@@ -28,6 +71,15 @@ You will need to set the correct parameters for your setup:
 | `-e PAGE_SIZE=50` | (**optional**) To avoid plex timeouts, results are loaded in pages (or chunks). If you recieve Plex Timeout errors, try setting this parameter to a lower value. |
 | `-e DEBUG=0` | (**optional**) To enable debug logging set `DEBUG` to `1` |
 | `-e PLEX_TIMEOUT=7200` | (**optional**) modify the timeout for wrapper (Error : Failed to load content!) |
+| `-e RADARR_URL="http://radarr:7878"` | (**optional**) Radarr address. Enables Radarr awareness (see [Radarr / Sonarr integration](#radarr--sonarr-integration)). |
+| `-e RADARR_API_KEY="somekey"` | (**optional**) Radarr API key. Required with `RADARR_URL`. |
+| `-e SONARR_URL="http://sonarr:8989"` | (**optional**) Sonarr address. Enables Sonarr awareness. |
+| `-e SONARR_API_KEY="somekey"` | (**optional**) Sonarr API key. Required with `SONARR_URL`. |
+| `-e ARR_INSTANCES="..."` | (**optional**) Several \*arr instances at once, e.g. a separate 4K pair. Format `name\|type\|url\|apikey`, entries separated by `;`. `type` is `radarr` or `sonarr`. |
+| `-e ARR_PATH_MATCH_DEPTH=2` | (**optional**) How many trailing path components are used to match a Plex file to an \*arr file. Default **2** (parent folder + filename). Raise it if different libraries share folder and file names. |
+| `-e ARR_CACHE_TTL=300` | (**optional**) Seconds to cache \*arr lookups. Default **300**. |
+| `-e ARR_TIMEOUT=30` | (**optional**) Per-request timeout for \*arr calls, in seconds. Default **30**. |
+| `-e ARR_VERIFY_SSL=1` | (**optional**) Set to `0` to skip SSL verification for self-signed \*arr certificates. |
 
 #### Example running directly with docker (with make)
 

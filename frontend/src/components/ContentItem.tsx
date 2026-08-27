@@ -1,4 +1,4 @@
-import {Button, Card, Checkbox, Dialog, Heading, Icon, IconButton, Image, majorScale, Pane, Table} from "evergreen-ui";
+import {Badge, Button, Card, Checkbox, Dialog, Heading, Icon, IconButton, Image, majorScale, Pane, Table, Text} from "evergreen-ui";
 import {Observer} from "mobx-react-lite";
 import React, {FunctionComponent, useState} from 'react';
 import {Media, MediaPart, Content} from "../types";
@@ -31,13 +31,18 @@ export const ContentItem:FunctionComponent<DupeMovieProps> = (props) => {
 
 
   const [mediaItemToDelete, setMediaItemToDelete] = useState<Media | null>(null);
+  const [forceDelete, setForceDelete] = useState(false);
   const [contentToIgnore, setContentToIgnore] = useState<Content | null>(null);
   const [contentToUnIgnore, setContentToUnIgnore] = useState<Content | null>(null);
 
   const onClickConfirmDelete = () => {
-    onDeleteMedia(content, mediaItemToDelete);
+    onDeleteMedia(content, mediaItemToDelete, forceDelete);
     setMediaItemToDelete(null);
+    setForceDelete(false);
   };
+
+  /** Is this the copy Radarr/Sonarr currently tracks? */
+  const isTracked = (media: Media | null): boolean => !!(media && media.arr && media.arr.tracked);
 
   const onCheckMedia = (media: Media, checked: boolean): void => {
     if (checked) {
@@ -108,6 +113,7 @@ export const ContentItem:FunctionComponent<DupeMovieProps> = (props) => {
           <Table.TextHeaderCell>Resolution</Table.TextHeaderCell>
           <Table.TextHeaderCell>Frame Rate</Table.TextHeaderCell>
           <Table.TextHeaderCell>Codec</Table.TextHeaderCell>
+          <Table.TextHeaderCell flexBasis={170} flexShrink={0}>Managed By</Table.TextHeaderCell>
           <Table.TextHeaderCell flexBasis={500}>Files</Table.TextHeaderCell>
           <Table.TextHeaderCell />
         </Table.Head>
@@ -144,6 +150,32 @@ export const ContentItem:FunctionComponent<DupeMovieProps> = (props) => {
                   <Table.TextCell>{media.videoResolution}</Table.TextCell>
                   <Table.TextCell>{media.videoFrameRate}</Table.TextCell>
                   <Table.TextCell>{media.videoCodec}</Table.TextCell>
+                  <Table.TextCell flexBasis={170} flexShrink={0}>
+                    {!media.arr ? (
+                      <Text size={300} color="muted">&ndash;</Text>
+                    ) : media.arr.tracked ? (
+                      <>
+                        <Badge color="green">{media.arr.instance} ✓</Badge>
+                        {typeof media.arr.customFormatScore === "number" && (
+                          <Text size={300} display="block" marginTop={2}>
+                            score {media.arr.customFormatScore}
+                          </Text>
+                        )}
+                        {media.arr.quality && (
+                          <Text size={300} display="block" color="muted">
+                            {media.arr.quality}
+                          </Text>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <Badge color="red">Orphan</Badge>
+                        <Text size={300} display="block" marginTop={2} color="muted">
+                          not tracked
+                        </Text>
+                      </>
+                    )}
+                  </Table.TextCell>
                   <Table.TextCell flexBasis={500}>
                     { media.parts.map((part: MediaPart, index: number) => (
                       <p style={{whiteSpace: "normal"}} key={index}>{ part.file }</p>
@@ -169,16 +201,32 @@ export const ContentItem:FunctionComponent<DupeMovieProps> = (props) => {
     </Card>
     <Dialog
       isShown={mediaItemToDelete !== null}
-      title="Warning"
+      title={isTracked(mediaItemToDelete) ? "This is the tracked copy" : "Warning"}
       intent="danger"
-      confirmLabel={`Delete Item`}
+      confirmLabel={isTracked(mediaItemToDelete) ? `Delete Anyway` : `Delete Item`}
+      isConfirmDisabled={isTracked(mediaItemToDelete) && !forceDelete}
       onConfirm={onClickConfirmDelete}
-      onCloseComplete={() => setMediaItemToDelete(null)}
+      onCloseComplete={() => { setMediaItemToDelete(null); setForceDelete(false); }}
     >
       Are you sure you want to delete the following file for <b>{content.title}</b>?
       { mediaItemToDelete && mediaItemToDelete!.parts.map((part: MediaPart, index: number) => (
         <pre style={{whiteSpace: "normal"}} key={index}>{ part.file }</pre>
       ))}
+      { isTracked(mediaItemToDelete) && (
+        <Pane marginTop={majorScale(2)}>
+          <Text display="block" marginBottom={majorScale(1)}>
+            <b>{mediaItemToDelete!.arr!.instance}</b> currently tracks this copy as
+            the file for this item. Deleting it will leave{" "}
+            {mediaItemToDelete!.arr!.instance} pointing at a missing file. The other
+            copy is most likely the one you meant to remove.
+          </Text>
+          <Checkbox
+            label="I understand - delete it anyway"
+            checked={forceDelete}
+            onChange={e => setForceDelete(e.target.checked)}
+          />
+        </Pane>
+      )}
     </Dialog>
     <Dialog
         isShown={contentToIgnore !== null}

@@ -25,13 +25,20 @@ export class MediaStore {
     this.media = {};
   }
 
-  deleteMedia(libraryName: string, movieKey: string, media: Media): Promise<any> {
+  deleteMedia(libraryName: string, movieKey: string, media: Media, force: boolean = false): Promise<any> {
     return new Promise((resolve, reject) => {
-      deleteMedia(libraryName, movieKey, media.id)
+      deleteMedia(libraryName, movieKey, media.id, force)
         .then(() => {
           this.removeMedia(media);
           resolve();
         }).catch((error) => {
+          // A 409 means the backend refused because Radarr/Sonarr tracks this
+          // copy. Surface its message rather than a bare request failure.
+          const response = error && error.response;
+          if (response && response.status === 409 && response.data) {
+            reject(new Error(response.data.message || 'Blocked: tracked by an *arr'));
+            return;
+          }
           reject(error);
         });
     })

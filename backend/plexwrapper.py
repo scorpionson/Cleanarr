@@ -11,6 +11,7 @@ from plexapi.video import Movie, Video, Episode
 from utils import trace_time
 from database import Database
 from logger import get_logger
+from arrwrapper import get_arr_wrapper
 
 logger = get_logger(__name__)
 
@@ -47,6 +48,9 @@ class PlexWrapper(object):
         logger.debug("Initializing DB...")
         self.db = Database()
         logger.debug("Initialized DB!")
+
+        # Shared singleton: keeps the *arr index warm across requests.
+        self.arr = get_arr_wrapper()
 
         self.traces = {}
 
@@ -154,6 +158,22 @@ class PlexWrapper(object):
         return self.plex.fetchItem(media_id)
 
     @trace_time
+    def get_media_file_paths(self, content_key, media_id):
+        """Every file backing one copy of a piece of content.
+
+        A copy is usually one file, but Plex allows a multi-part copy, so the
+        *arr check has to consider all of them.
+        """
+        content = self.get_content(content_key)
+        paths = []
+        for media in content.media:
+            if media.id == media_id:
+                for part in media.parts:
+                    if part.file:
+                        paths.append(part.file)
+        return paths
+
+    @trace_time
     def delete_media(self, library_name, content_key, media_id):
         content = self.get_content(content_key)
         deleted_size = self.db.get_deleted_size(library_name)
@@ -230,6 +250,10 @@ class PlexWrapper(object):
                 attr = future_to_attr[future]
                 results[attr] = future.result()
 
+        # Label each copy with what Radarr/Sonarr tracks, so the UI can
+        # distinguish the tracked copy from an orphan.
+        self.arr.annotate_media(results.get("media"))
+
         return results
 
     @trace_time
@@ -257,6 +281,10 @@ class PlexWrapper(object):
             for future in as_completed(future_to_attr):
                 attr = future_to_attr[future]
                 results[attr] = future.result()
+
+        # Label each copy with what Radarr/Sonarr tracks, so the UI can
+        # distinguish the tracked copy from an orphan.
+        self.arr.annotate_media(results.get("media"))
 
         return results
 

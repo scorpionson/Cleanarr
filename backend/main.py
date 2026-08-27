@@ -9,6 +9,7 @@ from flask_cors import CORS
 from database import Database
 from logger import get_logger
 from plexwrapper import PlexWrapper
+from arrwrapper import get_arr_wrapper
 
 app = Flask(__name__)
 CORS(app)
@@ -66,14 +67,52 @@ def get_deleted_sizes():
     return jsonify(sizes)
 
 
+@app.route("/arr/status")
+def get_arr_status():
+    """Whether *arr integration is active, so the UI knows if it can trust badges."""
+    arr = get_arr_wrapper()
+    return jsonify({
+        "enabled": arr.enabled,
+        "instances": [
+            {"name": i.name, "type": i.kind} for i in arr.instances
+        ],
+    })
+
+
 @app.route("/delete/media", methods=["POST"])
 def delete_media():
     content = request.get_json()
     library_name = content["library_name"]
     content_key = content["content_key"]
     media_id = content["media_id"]
+    force = bool(content.get("force", False))
 
-    PlexWrapper().delete_media(library_name, content_key, media_id)
+    plex = PlexWrapper()
+    arr = get_arr_wrapper()
+
+    # Refuse to delete the copy an *arr actually tracks. Deleting it leaves the
+    # *arr pointing at a missing file, and it is almost always the orphan copy
+    # that was meant to go. `force` is the deliberate override.
+    if arr.enabled and not force:
+        tracked = arr.is_tracked(plex.get_media_file_paths(content_key, media_id))
+        if tracked:
+            logger.warning(
+                "Refusing to delete %s-tracked file: %s",
+                tracked.get("instance"), tracked.get("path"),
+            )
+            return jsonify({
+                "success": False,
+                "error": "arr_tracked",
+                "message": (
+                    f"{tracked.get('instance')} currently tracks this copy as the "
+                    f"file for this item. Deleting it would leave "
+                    f"{tracked.get('instance')} pointing at a missing file. "
+                    f"Delete the untracked copy instead, or re-send with force."
+                ),
+                "arr": tracked,
+            }), 409
+
+    plex.delete_media(library_name, content_key, media_id)
 
     return jsonify({"success": True})
 
