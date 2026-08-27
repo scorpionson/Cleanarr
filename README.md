@@ -29,6 +29,11 @@ Cleanarr will:
 - **Refuse to delete the tracked copy.** The delete button still works, but you have
   to tick an explicit "delete it anyway" box first, and the API returns HTTP `409`
   unless `force: true` is sent.
+- **Filter false positives out of the Samples tab.** Sample detection is otherwise
+  a pure "shorter than 5 minutes" rule, which flags every genuinely short item in
+  your library - short films, cartoons, featurettes. Anything an \*arr tracks is
+  content it was asked to manage, so it is excluded; only short *and* untracked
+  files are reported.
 - **Pre-select the right copy.** Cleanarr pre-checks duplicates for deletion, keeping
   the highest-resolution and then largest copy. Size is a poor proxy for "the right
   file" - an orphan left behind by a failed upgrade is very often the *biggest* copy,
@@ -76,6 +81,8 @@ You will need to set the correct parameters for your setup:
 | `-e PAGE_SIZE=50` | (**optional**) To avoid plex timeouts, results are loaded in pages (or chunks). If you recieve Plex Timeout errors, try setting this parameter to a lower value. |
 | `-e DEBUG=0` | (**optional**) To enable debug logging set `DEBUG` to `1` |
 | `-e PLEX_TIMEOUT=7200` | (**optional**) modify the timeout for wrapper (Error : Failed to load content!) |
+| `-e SAMPLE_MAX_DURATION_MINUTES=5` | (**optional**) Files shorter than this are listed on the **Samples** tab. Default **5** minutes. |
+| `-e SAMPLE_SKIP_ARR_TRACKED=1` | (**optional**) When Radarr/Sonarr are configured, exclude short files that an \*arr tracks from the **Samples** tab - they are real content (short films, featurettes), not leftover samples. Set to `0` to flag purely on duration. Default **1**. |
 | `-e RADARR_URL="http://radarr:7878"` | (**optional**) Radarr address. Enables Radarr awareness (see [Radarr / Sonarr integration](#radarr--sonarr-integration)). |
 | `-e RADARR_API_KEY="somekey"` | (**optional**) Radarr API key. Required with `RADARR_URL`. |
 | `-e SONARR_URL="http://sonarr:8989"` | (**optional**) Sonarr address. Enables Sonarr awareness. |

@@ -1,4 +1,5 @@
 import os
+import threading
 import urllib.parse
 from urllib3 import PoolManager
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -22,11 +23,51 @@ class HostNameIgnoringAdapter(requests.adapters.HTTPAdapter):
                                        block=block,
                                        assert_hostname=False)
 
+_plex_server = None
+_plex_server_key = None
+_plex_server_lock = threading.Lock()
+
+
+def get_plex_server(baseurl, token, session, timeout):
+    """Reuse one PlexServer across requests.
+
+    Every Flask handler builds a PlexWrapper, and constructing a PlexServer
+    performs a full handshake with Plex. Doing that per request added a round
+    trip to every call for no benefit. Only the connection is shared - the
+    wrapper's tinydb Database stays per-instance, because tinydb is not safe
+    for concurrent writes.
+    """
+    global _plex_server, _plex_server_key
+    key = (baseurl, token, timeout)
+    with _plex_server_lock:
+        if _plex_server is None or _plex_server_key != key:
+            logger.debug("Opening new PlexServer connection")
+            _plex_server = PlexServer(baseurl, token, session=session, timeout=timeout)
+            _plex_server_key = key
+        return _plex_server
+
+
+def reset_plex_server():
+    """Drop the cached connection so the next call reconnects."""
+    global _plex_server, _plex_server_key
+    with _plex_server_lock:
+        _plex_server = None
+        _plex_server_key = None
+
+
 class PlexWrapper(object):
     def __init__(self):
         self.baseurl = os.environ.get("PLEX_BASE_URL")
         token = os.environ.get("PLEX_TOKEN")
         self.page_size = int(os.environ.get("PAGE_SIZE", 50))
+        # Anything shorter than this is treated as a sample file.
+        self.sample_max_duration_ms = (
+            int(os.environ.get("SAMPLE_MAX_DURATION_MINUTES", 5)) * 60 * 1000
+        )
+        # Short files that Radarr/Sonarr tracks are real content, not samples.
+        self.sample_skip_arr_tracked = (
+            os.environ.get("SAMPLE_SKIP_ARR_TRACKED", "1") != "0"
+        )
         self.libraries = [
             x.strip()
             for x in os.environ.get("LIBRARY_NAMES", "Movies").split(";")
@@ -42,7 +83,7 @@ class PlexWrapper(object):
         if os.environ.get("BYPASS_SSL_VERIFY", "0") == "1":
             session.mount("https://", HostNameIgnoringAdapter())
         logger.debug("Connecting to Plex...")
-        self.plex = PlexServer(self.baseurl, token, session=session, timeout=timeout)
+        self.plex = get_plex_server(self.baseurl, token, session, timeout)
         logger.debug("Connected to Plex!")
 
         logger.debug("Initializing DB...")
@@ -130,28 +171,91 @@ class PlexWrapper(object):
 
         return dupes
 
-    # TODO: refactor and multithread
+    def looks_like_sample(self, media) -> bool:
+        """Is this copy a leftover sample file rather than real content?
+
+        Duration alone is a bad test. Plenty of legitimate library entries are
+        genuinely short - short films, cartoons, featurettes - and a pure
+        "under N minutes" rule flags every one of them. Measured against a real
+        library, all five hits were real short films tracked by Radarr.
+
+        So when Radarr/Sonarr integration is configured we use it as the
+        authority: anything an *arr tracks is content it was asked to manage,
+        which a stray sample file never is. Short AND untracked is the signal.
+
+        With no *arr configured this falls back to the original duration-only
+        behaviour.
+        """
+        duration = getattr(media, "duration", None)
+        is_short = duration is None or duration < self.sample_max_duration_ms
+        if not is_short:
+            return False
+
+        if not (self.arr.enabled and self.sample_skip_arr_tracked):
+            return True
+
+        for part in getattr(media, "parts", []) or []:
+            if part.file and self.arr.lookup(part.file):
+                logger.debug("SAMPLES: skipping *arr-tracked file %s", part.file)
+                return False
+        return True
+
     @trace_time
     def get_content_sample_files(self):
-        content = []
+        """Find short files - likely leftover samples - across every section.
 
-        for section in self._get_sections():
-            for mediaContent in section.all():
-                samples = []
-                if mediaContent.TYPE != 'movie' or mediaContent.TYPE != 'episode':
-                    continue
-                for media in mediaContent.media:
-                    if media.duration is None or media.duration < (5 * 60 * 1000):
-                        samples.append(self.media_to_dict(media))
-                if len(samples) > 0:
-                    _media = dict()
-                    if mediaContent.TYPE == 'movie':
-                        _media = self.movie_to_dict(mediaContent, section.title)
-                    elif mediaContent.TYPE == 'episode':
-                        _media = self.episode_to_dict(mediaContent, section.title)
-                    _media["media"] = samples
-                    content.append(_media)
+        Returns every match in one response because the UI fetches this
+        endpoint unpaginated, but walks Plex in page_size chunks so a large
+        library is never requested in a single call.
+        """
+        content = []
+        with ThreadPoolExecutor() as executor:
+            futures = [
+                executor.submit(self.get_sample_files_for_section, section)
+                for section in self._get_sections()
+            ]
+            for future in as_completed(futures):
+                results = future.result()
+                if results:
+                    content += results
         return content
+
+    @trace_time
+    def get_sample_files_for_section(self, section):
+        if section.type not in ("movie", "show"):
+            return []
+
+        # A show section has to be walked as episodes: searching a show library
+        # returns Show objects, which have no .media at all. This mirrors the
+        # duplicate scan, which does the same translation.
+        libtype = "episode" if section.type == "show" else section.type
+        to_dict_func = self.episode_to_dict if libtype == "episode" else self.movie_to_dict
+
+        found = []
+        offset = 0
+        while True:
+            batch = section.search(
+                libtype=libtype, container_start=offset, limit=self.page_size
+            )
+            if not batch:
+                break
+            for item in batch:
+                samples = [
+                    self.media_to_dict(media)
+                    for media in item.media
+                    if self.looks_like_sample(media)
+                ]
+                if samples:
+                    entry = to_dict_func(item, section.title)
+                    # Show only the short copies, not every copy of the item.
+                    entry["media"] = samples
+                    found.append(entry)
+            if len(batch) < self.page_size:
+                break
+            offset += self.page_size
+
+        logger.debug("SAMPLES: %s/%s -> %s item(s)", section.title, libtype, len(found))
+        return found
 
     @trace_time
     def get_content(self, media_id):
