@@ -107,25 +107,35 @@ export const ContentPage:FunctionComponent<any> = () => {
       let _media = [
         ...movie.media
       ];
-      let sortedMedia = _media
-        .sort((a, b) => {
-          const aSize = sumMediaSize(a);
-          const bSize = sumMediaSize(b);
-          if (aSize < bSize) return 1;
-          if (aSize > bSize) return -1;
-          return 0;
-        })
-        .sort((a, b) => {
-          if (a.width < b.width) return 1;
-          if (a.width > b.width) return -1;
-          return 0;
-        });
+      // Rank the copies best-first. Whatever ends up at index 0 is kept and
+      // everything below it is pre-checked for deletion, so this ordering
+      // decides what the user is nudged to delete.
+      const isTracked = (m: Media) => !!(m.arr && m.arr.tracked);
 
-      // Remove the top entry and then select/check (for removal) the rest
+      let sortedMedia = _media.sort((a, b) => {
+        // 1. Never rank the copy Radarr/Sonarr tracks below an untracked one.
+        //    Size and resolution are poor proxies for "the right file": an
+        //    orphan left behind by a failed upgrade is frequently the biggest
+        //    copy, so ranking on size alone actively points at the wrong file.
+        //    When no *arr is configured this is a no-op and the original
+        //    resolution/size ordering below applies unchanged.
+        const aTracked = isTracked(a) ? 0 : 1;
+        const bTracked = isTracked(b) ? 0 : 1;
+        if (aTracked !== bTracked) return aTracked - bTracked;
+
+        // 2. Then prefer the higher resolution copy.
+        if ((a.width || 0) !== (b.width || 0)) return (b.width || 0) - (a.width || 0);
+
+        // 3. Then the larger file.
+        return sumMediaSize(b) - sumMediaSize(a);
+      });
+
+      // Keep the top entry and pre-check the rest for removal - but never
+      // pre-check a copy an *arr tracks, even if something else outranked it.
       sortedMedia.forEach(((media, index) => {
-        if (index !== 0) {
-          mediaStore.addMedia(media);
-        }
+        if (index === 0) return;
+        if (isTracked(media)) return;
+        mediaStore.addMedia(media);
       }));
     });
   }, [mediaStore, contentStore.items]);

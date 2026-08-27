@@ -29,6 +29,11 @@ Cleanarr will:
 - **Refuse to delete the tracked copy.** The delete button still works, but you have
   to tick an explicit "delete it anyway" box first, and the API returns HTTP `409`
   unless `force: true` is sent.
+- **Pre-select the right copy.** Cleanarr pre-checks duplicates for deletion, keeping
+  the highest-resolution and then largest copy. Size is a poor proxy for "the right
+  file" - an orphan left behind by a failed upgrade is very often the *biggest* copy,
+  so the old ranking could pre-check the file your \*arr actually depends on and keep
+  the orphan. The tracked copy is now always ranked first and is never pre-checked.
 
 Nothing changes if you don't configure an \*arr - the badges are hidden and deletes
 behave exactly as before.
