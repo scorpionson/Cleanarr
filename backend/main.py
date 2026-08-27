@@ -10,9 +10,23 @@ from database import Database
 from logger import get_logger
 from plexwrapper import PlexWrapper
 from arrwrapper import get_arr_wrapper
+from auth import get_auth
 
 app = Flask(__name__)
-CORS(app)
+
+# Same-origin only unless explicitly widened. The app is served from the same
+# origin as its API, so cross-origin access is only needed for the dev server -
+# and a wide-open policy on a service that deletes files is not a good default.
+_cors_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
+if _cors_origins:
+    CORS(app, origins=_cors_origins, supports_credentials=True)
+
+
+@app.before_request
+def _require_auth():
+    """Applied globally rather than per-route, so a new endpoint cannot be
+    added without protection by accident."""
+    return get_auth().check()
 
 logger = get_logger(__name__)
 

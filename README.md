@@ -9,6 +9,33 @@ You need to check `Settings | Library | Allow media deletion` within your plex s
 
 You will need a Plex Token: [How to find your Plex Token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/)
 
+## Authentication
+
+Cleanarr deletes files, so leaving it completely open is a real risk on any
+network you do not fully trust. Set `AUTH_USERNAME` and `AUTH_PASSWORD` to
+require HTTP Basic auth.
+
+**Auth is off unless both are set**, so upgrading an existing install does not
+lock you out - but the app logs a warning at startup while it is unprotected.
+
+By default the login is skipped for local addresses, matching the
+"Authentication Required: Disabled for Local Addresses" behaviour in Sonarr and
+Radarr. Set `AUTH_LOCAL_BYPASS=0` to require it from everywhere, or narrow
+`AUTH_TRUSTED_SUBNETS` to just your LAN.
+
+Two deliberate details:
+
+- **Loopback is always trusted**, even with the bypass off, so the container's
+  own healthcheck keeps working.
+- **`X-Forwarded-For` is ignored** unless the request arrives from a CIDR listed
+  in `AUTH_TRUSTED_PROXIES`. Anyone can send that header, so honouring it
+  unconditionally would let a remote caller claim a local address and walk
+  straight past the bypass.
+
+CORS is same-origin only unless you set `CORS_ORIGINS`. Earlier versions
+enabled it for every origin, which meant any page in a browser on your network
+could call the delete endpoint.
+
 ## Radarr / Sonarr integration
 
 Plex will happily show you two copies of the same movie, but Radarr or Sonarr only
@@ -88,6 +115,12 @@ You will need to set the correct parameters for your setup:
 | `-e SAMPLE_MAX_DURATION_MINUTES=5` | (**optional**) Files shorter than this are listed on the **Samples** tab. Default **5** minutes. |
 | `-e SAMPLE_SKIP_ARR_TRACKED=1` | (**optional**) When Radarr/Sonarr are configured, exclude short files that an \*arr tracks from the **Samples** tab - they are real content (short films, featurettes), not leftover samples. Set to `0` to flag purely on duration. Default **1**. |
 | `-e ARR_PRESELECT=1` | (**optional**) Rank the \*arr-tracked copy first in the default selection, so the orphan is what gets pre-checked for deletion. Set to `0` to keep the original resolution/size ordering and only show the badges. Default **1**. |
+| `-e AUTH_USERNAME="admin"` | (**optional**) Username for HTTP Basic auth. Auth is **off** unless both this and `AUTH_PASSWORD` are set. |
+| `-e AUTH_PASSWORD="secret"` | (**optional**) Password for HTTP Basic auth. |
+| `-e AUTH_LOCAL_BYPASS=1` | (**optional**) Skip the login for local addresses, the way Sonarr/Radarr's "Disabled for Local Addresses" works. Default **1**. Loopback is always allowed so the container healthcheck keeps working. |
+| `-e AUTH_TRUSTED_SUBNETS="192.168.1.0/24"` | (**optional**) What counts as local. Comma-separated CIDRs. Defaults to loopback + RFC1918 + link-local + unique-local IPv6. |
+| `-e AUTH_TRUSTED_PROXIES="172.17.0.0/16"` | (**optional**) CIDRs whose `X-Forwarded-For` is believed. Empty by default - that header is trivially spoofable, so set this only if you actually run Cleanarr behind a reverse proxy, and name the proxy. |
+| `-e CORS_ORIGINS="http://localhost:3000"` | (**optional**) Origins allowed to call the API cross-origin. Empty by default (same-origin only). |
 | `-e RADARR_URL="http://radarr:7878"` | (**optional**) Radarr address. Enables Radarr awareness (see [Radarr / Sonarr integration](#radarr--sonarr-integration)). |
 | `-e RADARR_API_KEY="somekey"` | (**optional**) Radarr API key. Required with `RADARR_URL`. |
 | `-e SONARR_URL="http://sonarr:8989"` | (**optional**) Sonarr address. Enables Sonarr awareness. |
