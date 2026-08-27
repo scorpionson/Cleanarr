@@ -25,3 +25,8 @@ RUN mkdir -p $CONFIG_DIR
 
 # copied from here: https://github.com/se1exin/Cleanarr/issues/135#issuecomment-2091709103
 RUN echo "buffer-size=32768" >> /app/uwsgi.ini
+
+# Let Docker tell a wedged container apart from a healthy one. /server/info is
+# the cheapest endpoint that proves both Flask and the Plex connection work.
+HEALTHCHECK --interval=60s --timeout=15s --start-period=30s --retries=3 \
+  CMD python3 -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1/server/info', timeout=10).status==200 else 1)" || exit 1
